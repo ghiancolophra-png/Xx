@@ -1212,44 +1212,100 @@ local function createSlider(parent, x, y, w, cfg)
 	return { Set = function(v, instant) set(v, instant, true) end, Get = function() return cur end }
 end
 
-local function createDropdown(parent, x, y, w, options, default, onChange, isData)
+-- bolder, easier-to-see arrow for dropdowns
+function Icons.chevronBold(bar)
+	bar(6.8, 9, 7, 2.4, 45)
+	bar(13.2, 9, 7, 2.4, -45)
+end
 
+-- options: flat list of strings, OR a mix of strings and sections:
+--   { "a", "b", { Title = "Section", Values = { "c", "d" } } }
+-- dopts: { Search = true, SearchPlaceholder = "search..." }
+local function createDropdown(parent, x, y, w, options, default, onChange, isData, dopts)
+	dopts = dopts or {}
 	local H = 24
+	local ROW, HEAD, MAXROWS, SEARCH_H = 24, 20, 6, 30
+	local MAXH = MAXROWS * ROW + 8
+	local hasSearch = dopts.Search and true or false
+
 	local btn = createButton(parent, { Sound = true, Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(w, H), BackgroundColor3 = C.field, BackgroundTransparency = 0 })
 	corner(btn, 6)
 	local bs = stroke(btn, C.line, 1)
-	local label = createLabel(btn, default, 12, C.text, FONT, { Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -30, 1, 0) })
+	local label = createLabel(btn, default, 12, C.text, FONT, { Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -34, 1, 0) })
 	if isData then label:SetAttribute("NoTranslate", true) end
-	local chev = newIcon(btn, 10, Icons.chevron)
-	chev.Holder.Position = UDim2.new(1, -14, 0.5, 0)
 
-	local MAXROWS = 6
-	local listH = math.min(#options, MAXROWS) * 24 + 8
+	-- arrow indicator
+	local chev = newIcon(btn, 14, Icons.chevronBold)
+	chev.Holder.Position = UDim2.new(1, -16, 0.5, 0)
+	chev.paint(C.sub)
+
+	local listH = 0
 	local list = createFrame(parent, {
 		Position = UDim2.fromOffset(x, y + H + 4), Size = UDim2.fromOffset(w, 0), BackgroundColor3 = C.field,
 		ClipsDescendants = true, Visible = false, ZIndex = 40,
 	})
 	corner(list, 6)
 	stroke(list, C.line, 1)
-	local sf = create("ScrollingFrame", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2,
-		ScrollBarImageColor3 = C.accent, CanvasSize = UDim2.fromOffset(0, 0), ScrollingDirection = Enum.ScrollingDirection.Y,
-	}, list)
 
-	local optionButtons, current, open = {}, default, false
+	-- optional search bar
+	local searchBox
+	if hasSearch then
+		local bar = createFrame(list, { Size = UDim2.new(1, 0, 0, SEARCH_H) })
+		local field = createFrame(bar, { Position = UDim2.fromOffset(4, 4), Size = UDim2.new(1, -8, 0, 22), BackgroundColor3 = C.bg })
+		corner(field, 5)
+		local fs = stroke(field, C.line, 1)
+		local si = newIcon(field, 11, Icons.search)
+		si.Holder.Position = UDim2.fromOffset(12, 11)
+		searchBox = create("TextBox", {
+			BackgroundTransparency = 1, Position = UDim2.fromOffset(24, 0), Size = UDim2.new(1, -30, 1, 0), Text = "",
+			PlaceholderText = dopts.SearchPlaceholder or "Search...", PlaceholderColor3 = C.dim, TextColor3 = C.text, Font = FONT, TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false, ClipsDescendants = true,
+		}, field)
+		searchBox:SetAttribute("NoTranslate", true)
+		searchBox.Focused:Connect(function() tween(fs, 0.12, { Color = C.accent }) si.tint(C.accent, 0.12) end)
+		searchBox.FocusLost:Connect(function() tween(fs, 0.12, { Color = C.line }) si.tint(C.sub, 0.12) end)
+		createFrame(bar, { Position = UDim2.new(0, 0, 1, -1), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.line })
+	end
+
+	local topOff = hasSearch and SEARCH_H or 0
+	local sf = create("ScrollingFrame", {
+		Position = UDim2.fromOffset(0, topOff), Size = UDim2.new(1, 0, 1, -topOff), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2,
+		ScrollBarImageColor3 = C.accent, CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y, ElasticBehavior = Enum.ElasticBehavior.Never,
+	}, list)
+	create("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 6) }, sf)
+	create("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, sf)
+	local empty = createLabel(sf, "no results", 11, C.sub, FONT, { Size = UDim2.new(1, 0, 0, 26), TextXAlignment = Enum.TextXAlignment.Center, LayoutOrder = 0, Visible = false })
+
+	local optionButtons, items, current, open = {}, {}, default, false
+
 	local function setOpen(v)
 		open = v
 		if v then list.Visible = true end
 		tween(list, 0.18, { Size = UDim2.fromOffset(w, v and listH or 0) }, Enum.EasingStyle.Quint)
 		tween(chev.Holder, 0.18, { Rotation = v and 180 or 0 })
+		chev.tint(v and C.accent or C.sub, 0.15)
 		tween(bs, 0.15, { Color = v and C.accent or C.line })
-		if not v then task.delay(0.19, function() if not open then list.Visible = false end end) end
+		if v and searchBox and not UserInputService.TouchEnabled then
+			task.delay(0.05, function() if open then searchBox:CaptureFocus() end end)
+		end
+		if not v then
+			task.delay(0.19, function()
+				if open then return end
+				list.Visible = false
+				if searchBox then searchBox.Text = "" end
+			end)
+		end
 	end
 
 	local function choose(opt, silent)
 		current = opt
 		label.Text = opt
-		for name, b in pairs(optionButtons) do b.TextColor3 = name == opt and C.accent or C.sub end
+		for name, b in pairs(optionButtons) do
+			local sel = name == opt
+			b.TextColor3 = sel and C.accent or C.sub
+			b.Font = sel and FONT_BOLD or FONT
+		end
 		setOpen(false)
 		if not silent then
 			if onChange then onChange(opt) end
@@ -1257,30 +1313,93 @@ local function createDropdown(parent, x, y, w, options, default, onChange, isDat
 		end
 	end
 
+	-- filter by search text + hide section headers with no matches
+	local function refilter()
+		local q = searchBox and searchBox.Text:lower() or ""
+		local headIdx, any = nil, false
+		local headHas = {}
+		for i, it in ipairs(items) do
+			if it.kind == "head" then
+				headIdx = i
+				headHas[i] = false
+			else
+				it.match = q == "" or it.text:lower():find(q, 1, true) ~= nil
+				if it.match then
+					any = true
+					if headIdx then headHas[headIdx] = true end
+				end
+			end
+		end
+		local contentH = 8
+		for i, it in ipairs(items) do
+			local vis = it.kind == "head" and headHas[i] or it.match
+			it.inst.Visible = vis and true or false
+			if vis then contentH += (it.kind == "head" and HEAD or ROW) end
+		end
+		empty.Visible = not any
+		if not any then contentH = 8 + 28 end
+		listH = topOff + math.min(contentH, MAXH)
+		if open then tween(list, 0.15, { Size = UDim2.fromOffset(w, listH) }, Enum.EasingStyle.Quint) end
+		sf.CanvasPosition = Vector2.zero
+	end
+
 	local function build(opts, sel)
-		for _, b in pairs(optionButtons) do b:Destroy() end
-		optionButtons = {}
-		listH = math.min(#opts, MAXROWS) * 24 + 8
-		sf.CanvasSize = UDim2.fromOffset(0, #opts * 24 + 8)
-		for i, opt in ipairs(opts) do
+		for _, it in ipairs(items) do it.inst:Destroy() end
+		items, optionButtons = {}, {}
+		local order = 0
+		local function addOption(text)
+			order += 1
+			local sc = text == sel
 			local ob = createButton(sf, { Sound = true,
-				Position = UDim2.fromOffset(4, 4 + (i - 1) * 24), Size = UDim2.new(1, -8, 0, 22), Text = opt, TextSize = 12,
-				TextColor3 = opt == sel and C.accent or C.sub, TextXAlignment = Enum.TextXAlignment.Left, BackgroundColor3 = C.accent, TextTruncate = Enum.TextTruncate.AtEnd,
+				Size = UDim2.new(1, 0, 0, 22), Text = text, TextSize = 12, LayoutOrder = order, Font = sc and FONT_BOLD or FONT,
+				TextColor3 = sc and C.accent or C.sub, TextXAlignment = Enum.TextXAlignment.Left, BackgroundColor3 = C.accent, TextTruncate = Enum.TextTruncate.AtEnd,
 			})
 			corner(ob, 4)
 			create("UIPadding", { PaddingLeft = UDim.new(0, 8) }, ob)
 			if isData then ob:SetAttribute("NoTranslate", true) end
-			optionButtons[opt] = ob
+			optionButtons[text] = ob
+			table.insert(items, { kind = "opt", text = text, inst = ob, match = true })
 			ob.MouseEnter:Connect(function() tween(ob, 0.1, { BackgroundTransparency = 0.88 }) end)
 			ob.MouseLeave:Connect(function() tween(ob, 0.1, { BackgroundTransparency = 1 }) end)
-			ob.Activated:Connect(function() choose(opt) end)
+			ob.Activated:Connect(function() choose(text) end)
+		end
+		local function addHeader(text)
+			order += 1
+			local hd = createLabel(sf, text, 10, C.dim, FONT_BOLD, { Size = UDim2.new(1, 0, 0, 18), LayoutOrder = order, NoTitle = true })
+			hd.Text = string.upper(text)
+			create("UIPadding", { PaddingLeft = UDim.new(0, 8) }, hd)
+			hd:SetAttribute("NoTranslate", true)
+			table.insert(items, { kind = "head", text = text, inst = hd })
+		end
+		for _, o in ipairs(opts) do
+			if type(o) == "table" then
+				local title = o.Title or o.Name or o.Section
+				if title then addHeader(tostring(title)) end
+				for _, v in ipairs(o.Values or o.Options or o) do addOption(tostring(v)) end
+			else
+				addOption(tostring(o))
+			end
 		end
 		current = sel
 		label.Text = sel
-		if open then tween(list, 0.18, { Size = UDim2.fromOffset(w, listH) }, Enum.EasingStyle.Quint) end
+		if searchBox then searchBox.Text = "" end
+		refilter()
 	end
 	build(options, default)
 
+	if searchBox then
+		searchBox:GetPropertyChangedSignal("Text"):Connect(refilter)
+		-- Enter picks the first visible match
+		searchBox.FocusLost:Connect(function(enter)
+			if not enter then return end
+			for _, it in ipairs(items) do
+				if it.kind == "opt" and it.match then choose(it.text) return end
+			end
+		end)
+	end
+
+	btn.MouseEnter:Connect(function() if not open then chev.tint(C.text, 0.1) end end)
+	btn.MouseLeave:Connect(function() if not open then chev.tint(C.sub, 0.1) end end)
 	btn.Activated:Connect(function() setOpen(not open) end)
 	UserInputService.InputBegan:Connect(function(input)
 		if open and isPress(input) and not isInside(list, input.Position) and not isInside(btn, input.Position) then setOpen(false) end
@@ -14783,22 +14902,45 @@ function State.buildNauru()
 		return finish(row, obj)
 	end
 
+	-- Values can be flat or sectioned:
+	--   Values = { "a", "b" }
+	--   Values = { { Title = "Section A", Values = { "a", "b" } }, { Title = "Section B", Values = { "c" } } }
+	-- Search = true adds a search bar to the dropdown list
 	function M.dropdown(tab, a, b, c, d)
 		local W = tab._w
 		local cfg = cfgOf(a, { "Title", "Values", "Default", "Callback" }, b, c, d)
-		local values = {}
-		for _, x in ipairs(cfg.Values or cfg.Options or {}) do table.insert(values, tostring(x)) end
+		local function norm(src)
+			local out, flat = {}, {}
+			for _, x in ipairs(src or {}) do
+				if type(x) == "table" then
+					local vals = {}
+					for _, v in ipairs(x.Values or x.Options or x) do
+						table.insert(vals, tostring(v))
+						table.insert(flat, tostring(v))
+					end
+					table.insert(out, { Title = x.Title or x.Name or x.Section, Values = vals })
+				else
+					table.insert(out, tostring(x))
+					table.insert(flat, tostring(x))
+				end
+			end
+			return out, flat
+		end
+		local values, flat = norm(cfg.Sections or cfg.Values or cfg.Options)
 		local def = cfg.Default
 		if def == nil then def = cfg.Value end
-		if type(def) == "number" then def = values[def] end
-		def = def and tostring(def) or values[1] or ""
+		if type(def) == "number" then def = flat[def] end
+		def = def and tostring(def) or flat[1] or ""
 		local title = cfg.Title or cfg.Name or cfg.Text
 		local top = title and 18 or 0
 		local base = top + 28
 		local row = addRow(tab, base)
 		if title then createLabel(row, title, 11, C.text, FONT, { Position = UDim2.fromOffset(0, 8), AnchorPoint = Vector2.new(0, 0.5), Size = UDim2.fromOffset(W, 16) }) end
 		local ready = false
-		local dd = createDropdown(row, 0, top, W, values, def, function(o) if ready then safe(cfg.Callback, o) end end)
+		local search = cfg.Search or cfg.Searchable or cfg.SearchBar
+		local dd = createDropdown(row, 0, top, W, values, def, function(o) if ready then safe(cfg.Callback, o) end end, false, {
+			Search = search and true or false, SearchPlaceholder = cfg.SearchPlaceholder,
+		})
 		ready = true
 		local list = findPopup(row)
 		if list then
@@ -14811,9 +14953,8 @@ function State.buildNauru()
 		bind(obj, "Set", function(o, silent) dd.Set(tostring(o), true) if not silent then safe(cfg.Callback, dd.Get()) end end)
 		bind(obj, "Get", function() return dd.Get() end)
 		bind(obj, "Refresh", function(vals, sel)
-			local out = {}
-			for _, x in ipairs(vals or {}) do table.insert(out, tostring(x)) end
-			dd.SetOptions(out, sel and tostring(sel) or out[1] or "")
+			local out, fl = norm(vals)
+			dd.SetOptions(out, sel and tostring(sel) or fl[1] or "")
 		end)
 		if def ~= "" then task.defer(safe, cfg.Callback, def) end
 		return finish(row, obj)
