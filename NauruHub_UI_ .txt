@@ -1841,7 +1841,6 @@ end
 do
 	local div = createFrame(topRow, { Size = UDim2.fromOffset(1, 12), BackgroundColor3 = C.divider, LayoutOrder = 10 })
 	local function short(n, cap)
-		if utf8.len(n) and utf8.len(n) > cap then return string.sub(n, 1, (utf8.offset(n, cap) or cap + 1) - 1) .. "..." end
 		return n
 	end
 	local fullName, userShow, fitting = game.Name, true, false
@@ -1869,14 +1868,14 @@ do
 			if not userShow then
 				if totalWith(exW, nil) <= MAXW then exText, found = ex, true break end
 			else
-				for _, cap in ipairs({ 24, 18, 14, 11, 8 }) do
-					local t = short(fullName, cap)
-					if totalWith(exW, State.measureW(t, FONT_BOLD)) <= MAXW then exText, text, shown, found = ex, t, true, true break end
-				end
-				if found then break end
+				local t = fullName
+				if totalWith(exW, State.measureW(t, FONT_BOLD)) <= MAXW then exText, text, shown, found = ex, t, true, true break end
 			end
 		end
-		if not found then exText = execShort end
+		if not found then
+			exText = execShort
+			if userShow then text, shown = fullName, true end
+		end
 		if execLabel.Text ~= exText then execLabel.Text = exText end
 		local exW = State.measureW(exText, FONT_BOLD)
 		if execLabel.Size.X.Offset ~= exW then execLabel.Size = UDim2.fromOffset(exW, 28) end
@@ -5048,7 +5047,7 @@ do
 				if allOff() and not State.allDocked then
 					State.allDocked = true
 					rl()
-					glideCenter()
+					if dock.music.off and dock.session.off and dock.lang.off then glideCenter() end
 				end
 			end)
 		elseif State.allDocked then
